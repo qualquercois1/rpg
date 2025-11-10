@@ -1,0 +1,19 @@
+# Ambientes Virtuais
+.venv/
+venv/
+*env/
+
+# Arquivos de bytecode e cache do Python
+__pycache__/
+*.pyc
+
+# Arquivos de configuração de S.O.
+.DS_Store
+Thumbs.db
+
+# Arquivos de variáveis de ambiente (NUNCA COMITE SUAS CHAVES!)
+.env
+*.env
+
+# Configurações do Streamlit (se você usar o st.secrets)
+.streamlit/secrets.toml
