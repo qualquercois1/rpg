@@ -3,22 +3,19 @@ import google.generativeai as genai
 import json
 import time
 
-# --- Configuração da Página ---
 st.set_page_config(
     page_title="Gerador de Personagem RPG",
     page_icon="🎲",
     layout="centered"
 )
 
-# --- Configuração Inicial de Estado ---
 if 'theme_index' not in st.session_state:
     st.session_state.theme_index = 0
 if 'page' not in st.session_state:
-    st.session_state.page = 'formulario' # controla qual 'tela' estamos vendo
+    st.session_state.page = 'formulario' 
 if 'character_report' not in st.session_state:
-    st.session_state.character_report = "" # guarda o relatório gerado
+    st.session_state.character_report = "" 
 
-# --- Temas (Mantidos do seu código original) ---
 themes = [
     {'titulo': 'Revolta Arcanopunk', 'descricao': 'Em uma cidade onde a tecnologia a vapor e a magia rúnica competem, os jogadores são membros da resistência contra um império tecnológico que busca erradicar a magia.'},
     {'titulo': 'Os Ecos do Cataclismo', 'descricao': 'Mil anos após uma guerra divina que quebrou o mundo, pequenas comunidades sobrevivem em uma terra com anomalias mágicas e ruínas de uma civilização grandiosa.'},
@@ -28,11 +25,9 @@ themes = [
     {'titulo': 'Aleatório', 'descricao': 'Pode ser qualquer coisa'}
 ]
 
-# --- Função para Chamar o Gemini ---
+
 def gerar_relatorio_gemini(api_key, dados):
-    """Envia os dados para o Gemini e recebe o relatório."""
     genai.configure(api_key=api_key)
-    # Usando um modelo mais recente e rápido. Você pode usar 'gemini-pro' se preferir.
     model = genai.GenerativeModel('gemini-2.5-flash')
 
     prompt = f"""
@@ -59,13 +54,10 @@ def gerar_relatorio_gemini(api_key, dados):
     except Exception as e:
         return f"Erro ao gerar personagem: {e}"
 
-# ==============================================================================
-# INTERFACE - PÁGINA 1: FORMULÁRIO
-# ==============================================================================
 if st.session_state.page == 'formulario':
     st.title('Gerador de Personagem 🎲')
 
-    # Sidebar para API Key (Segurança básica)
+
     with st.sidebar:
         st.header("Configurações")
         api_key = st.text_input("Insira sua Gemini API Key", type="password")
@@ -99,7 +91,6 @@ if st.session_state.page == 'formulario':
 
         st.markdown("<h1 style='text-align: center;'>📜 Escolha o Tema 📜</h1>", unsafe_allow_html=True)
 
-        # Navegação do Tema
         new_col1, new_col2, new_col3 = st.columns([1,5,1])
         with new_col1:
             if st.button("⬅️ Anterior", use_container_width=True):
@@ -113,21 +104,18 @@ if st.session_state.page == 'formulario':
             st.markdown(f"**Descrição:** {current_theme['descricao']}")
 
         st.markdown("---")
-        # Indicador de página do tema
         page_indicator = " ".join(["●" if i == st.session_state.theme_index else "○" for i in range(len(themes))])
         st.markdown(f"<p style='text-align: center; font-size: 20px; color: grey;'>{page_indicator}</p>", unsafe_allow_html=True)
 
-        # Botão Principal de Enviar
         if st.button('🔮 Gerar Personagem 🔮', use_container_width=True, type="primary"):
             if not api_key:
                 st.error("Por favor, insira sua chave de API do Gemini na barra lateral.")
             else:
-                # Prepara os dados
                 dados_finais = {
                     "Tema": themes[st.session_state.theme_index]['titulo'],
                     "Descricao_Tema": themes[st.session_state.theme_index]['descricao'],
                     "Nome": nome,
-                    "Idade": idade if idade > 0 else "", # Garante que 0 seja tratado como vazio para o prompt
+                    "Idade": idade if idade > 0 else "", 
                     "Cor dos Olhos": cor_olhos,
                     "Classe": classe,
                     "Altura": f"{altura:.2f}m" if altura > 0 else "",
@@ -136,33 +124,25 @@ if st.session_state.page == 'formulario':
                     "Regiao": regiao,
                 }
 
-                # Mostra spinner enquanto chama a API
                 with st.spinner('Consultando os oráculos digitais...'):
                     relatorio = gerar_relatorio_gemini(api_key, dados_finais)
                     st.session_state.character_report = relatorio
-                    st.session_state.page = 'relatorio' # Muda a página
-                    st.rerun() # Força a atualização imediata da interface
+                    st.session_state.page = 'relatorio' 
+                    st.rerun() 
 
-# ==============================================================================
-# INTERFACE - PÁGINA 2: RELATÓRIO
-# ==============================================================================
 elif st.session_state.page == 'relatorio':
     st.title("Ficha de Personagem")
 
-    # Botão para voltar
     if st.button("⬅️ Criar Novo Personagem"):
         st.session_state.page = 'formulario'
         st.rerun()
 
     st.divider()
 
-    # Container para o relatório com um fundo diferente (opcional, visual)
     with st.container():
-        # Renderiza o Markdown retornado pelo Gemini
         st.markdown(st.session_state.character_report)
 
     st.divider()
-    # Opção para baixar o relatório
     st.download_button(
         label="💾 Baixar Ficha (TXT)",
         data=st.session_state.character_report,

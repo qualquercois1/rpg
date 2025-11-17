@@ -1,12 +1,10 @@
 import streamlit as st
 
-# Configuração da página - DEVE SER O PRIMEIRO COMANDO STREAMLIT
-# Isso define o título da aba do navegador e o layout de todo o app.
 st.set_page_config(
     page_title="Gerador de Personagens RPG com IA",
     page_icon="🎲",
-    layout="wide", # 'wide' dá mais espaço
-    initial_sidebar_state="expanded" # Deixa a barra lateral aberta por padrão
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 
