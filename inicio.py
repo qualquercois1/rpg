@@ -16,11 +16,6 @@ Usando o poder da Inteligência Artificial do **Google Gemini**, este gerador cr
 completas, incluindo histórias de fundo, personalidades e detalhes temáticos.
 """)
 
-
-st.image("imgs/rpg-de-mesa.webp", 
-         caption="Sua próxima aventura começa aqui.",
-         width='stretch')
-
 st.header("Como Funciona?")
 
 col1, col2 = st.columns(2)
