@@ -4,16 +4,17 @@ import json
 import time
 import re 
 import streamlit.components.v1 as components 
+import os
+import base64
+from fpdf import FPDF 
 
-# --- Configuração de Estado ---
 if 'theme_index' not in st.session_state:
     st.session_state.theme_index = 0
 if 'page' not in st.session_state:
     st.session_state.page = 'formulario' 
 if 'character_data' not in st.session_state:
-    st.session_state.character_data = None # Mudado de string para objeto/dict
+    st.session_state.character_data = None 
 
-# --- Temas ---
 themes = [
     {'titulo': 'Revolta Arcanopunk', 'descricao': 'Em uma cidade onde a tecnologia a vapor e a magia rúnica competem, os jogadores são membros da resistência contra um império tecnológico que busca erradicar a magia.'},
     {'titulo': 'Os Ecos do Cataclismo', 'descricao': 'Mil anos após uma guerra divina que quebrou o mundo, pequenas comunidades sobrevivem em uma terra com anomalias mágicas e ruínas de uma civilização grandiosa.'},
@@ -23,12 +24,96 @@ themes = [
     {'titulo': 'Aleatório', 'descricao': 'Pode ser qualquer coisa'}
 ]
 
-# --- Função da API Gemini (JSON) ---
+def get_image_base64(path):
+    """Lê uma imagem local e converte para base64 para embutir no HTML."""
+    try:
+        with open(path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        return f"data:image/png;base64,{encoded_string}"
+    except Exception as e:
+        print(f"Erro ao carregar imagem: {e}")
+        return ""
+
+def create_pdf(data):
+    """Gera um arquivo PDF com os dados do personagem."""
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Configuração de Fonte (Arial/Helvetica padrão)
+    pdf.set_font("Helvetica", size=12)
+
+    # Título (Nome)
+    pdf.set_font("Helvetica", style="B", size=20)
+    title = data.get('nome', 'Desconhecido')
+    pdf.cell(0, 10, txt=title.encode('latin-1', 'replace').decode('latin-1'), ln=True, align='C')
+    
+    # Subtítulo (Raça | Classe)
+    pdf.set_font("Helvetica", style="I", size=12)
+    subtitle = f"{data.get('raca')} | {data.get('classe')}"
+    pdf.cell(0, 10, txt=subtitle.encode('latin-1', 'replace').decode('latin-1'), ln=True, align='C')
+    pdf.ln(5)
+
+    # Imagem (Se existir)
+    img_path = "imgs/userIcon.png"
+    if os.path.exists(img_path):
+        # Centraliza a imagem (A4 width ~210mm. Imagem 40mm. X = (210-40)/2 = 85)
+        pdf.image(img_path, x=85, w=40)
+        pdf.ln(5)
+
+    # Seções de Texto
+    sections = [
+        ("Detalhes Físicos", data.get('detalhes_fisicos')),
+        ("História", data.get('historia')),
+        ("Personalidade", data.get('personalidade'))
+    ]
+
+    for title, content in sections:
+        pdf.set_font("Helvetica", style="B", size=14)
+        pdf.cell(0, 10, txt=title.encode('latin-1', 'replace').decode('latin-1'), ln=True)
+        pdf.set_font("Helvetica", size=11)
+        pdf.multi_cell(0, 6, txt=str(content).encode('latin-1', 'replace').decode('latin-1'))
+        pdf.ln(5)
+
+    # Inventário
+    pdf.set_font("Helvetica", style="B", size=14)
+    pdf.cell(0, 10, txt="Inventário", ln=True)
+    pdf.set_font("Helvetica", size=11)
+    for item in data.get('inventario', []):
+        text = f"- {item}"
+        pdf.cell(0, 6, txt=text.encode('latin-1', 'replace').decode('latin-1'), ln=True)
+    pdf.ln(5)
+
+    # Atributos
+    pdf.set_font("Helvetica", style="B", size=14)
+    pdf.cell(0, 10, txt="Atributos", ln=True)
+    pdf.set_font("Helvetica", size=11)
+    
+    attrs = data.get('atributos', {})
+    # Formata em duas colunas simples
+    col_width = pdf.w / 2.5
+    row_height = 6
+    
+    attr_list = list(attrs.items())
+    for i in range(0, len(attr_list), 2):
+        # Coluna 1
+        key1, val1 = attr_list[i]
+        text1 = f"{key1.capitalize()}: {val1}"
+        pdf.cell(col_width, row_height, txt=text1.encode('latin-1', 'replace').decode('latin-1'), border=1)
+        
+        # Coluna 2 (se existir)
+        if i + 1 < len(attr_list):
+            key2, val2 = attr_list[i+1]
+            text2 = f"{key2.capitalize()}: {val2}"
+            pdf.cell(col_width, row_height, txt=text2.encode('latin-1', 'replace').decode('latin-1'), border=1, ln=True)
+        else:
+            pdf.ln(row_height)
+
+    return pdf.output(dest='S').encode('latin-1')
+
 def gerar_personagem_json(api_key, dados):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-2.5-pro') 
 
-    # Prompt focado em JSON
     prompt = f"""
     Você é um mestre de RPG experiente e criativo.
     Sua tarefa é gerar um personagem completo baseado nos dados parciais fornecidos e retornar APENAS um JSON válido.
@@ -69,25 +154,23 @@ def gerar_personagem_json(api_key, dados):
     try:
         response = model.generate_content(prompt)
         
-        # Log de tokens
         if hasattr(response, 'usage_metadata'):
             print(f"\n[TOKENS] Prompt: {response.usage_metadata.prompt_token_count} | Resposta: {response.usage_metadata.candidates_token_count}")
         
-        # Limpeza básica para garantir JSON válido (caso a IA mande Markdown)
         texto_limpo = response.text.strip()
         if texto_limpo.startswith("```json"):
             texto_limpo = texto_limpo[7:]
         if texto_limpo.endswith("```"):
             texto_limpo = texto_limpo[:-3]
             
-        return json.loads(texto_limpo) # Retorna um dicionário Python
+        return json.loads(texto_limpo) 
     
     except Exception as e:
         print(f"\n[ERRO] {e}\n")
         return None
 
 def formatar_relatorio_markdown(data):
-    """Converte o JSON do personagem em um texto Markdown bonito para exibir/baixar."""
+    """Converte o JSON do personagem em um texto Markdown para o arquivo de download."""
     if not data: return ""
     
     attrs = data.get('atributos', {})
@@ -95,15 +178,6 @@ def formatar_relatorio_markdown(data):
     md = f"""# 📜 Ficha de Personagem: {data.get('nome', 'Desconhecido')}
 
 **Raça:** {data.get('raca')} | **Classe:** {data.get('classe')}
-
----
-### 📊 Atributos
-* **Força:** {attrs.get('forca', 0)}
-* **Agilidade:** {attrs.get('agilidade', 0)}
-* **Vitalidade:** {attrs.get('vitalidade', 0)}
-* **Inteligência:** {attrs.get('inteligencia', 0)}
-* **Sobrevivência:** {attrs.get('sobrevivencia', 0)}
-* **Magia:** {attrs.get('magia', 0)}
 
 ---
 ### 👤 Detalhes Físicos
@@ -119,12 +193,24 @@ def formatar_relatorio_markdown(data):
 """
     for item in data.get('inventario', []):
         md += f"* {item}\n"
+
+    md += f"""
+---
+### 📊 Atributos
+* **Força:** {attrs.get('forca', 0)}
+* **Agilidade:** {attrs.get('agilidade', 0)}
+* **Vitalidade:** {attrs.get('vitalidade', 0)}
+* **Inteligência:** {attrs.get('inteligencia', 0)}
+* **Sobrevivência:** {attrs.get('sobrevivencia', 0)}
+* **Magia:** {attrs.get('magia', 0)}
+"""
         
     return md
 
 # ===================================================================
-# --- PÁGINA 1: FORMULÁRIO ---
+#                           FORMULARIO
 # ===================================================================
+
 if st.session_state.page == 'formulario':
     st.title('Gerador de Personagem 🎲')
 
@@ -159,7 +245,7 @@ if st.session_state.page == 'formulario':
             regiao = st.selectbox("Região de Origem", ["", "As Terras Partidas de Vor'Thal", "O Sussurro Verdejante de Sylanar", "Os Cânions de Ferro e Fogo de Kaz'Dur", "O Arquipélago da Maré de Cristal", "As Planícies Desoladas do Crepúsculo Eterno", "Outro..."])
             if regiao == 'Outro...': regiao = st.text_input('Digite a região desejada')
 
-        # --- NOVA SEÇÃO DE ATRIBUTOS ---
+        # ATRIBUTOS
         st.divider()
         st.subheader("Atributos (Total 30 Pontos)")
         st.info("Distribua 30 pontos. Cada atributo pode ter no máximo 10. Deixe em 0 para a IA gerar.")
@@ -177,7 +263,7 @@ if st.session_state.page == 'formulario':
         
         st.markdown("<h1 style='text-align: center;'>📜 Escolha o Tema 📜</h1>", unsafe_allow_html=True)
 
-        # Navegação do Tema
+        # NAVEGADOR DE TEMAS
         new_col1, new_col2, new_col3 = st.columns([1,5,1])
         with new_col1:
             if st.button("⬅️ Anterior", use_container_width=True):
@@ -223,7 +309,6 @@ if st.session_state.page == 'formulario':
                 }
 
                 with st.spinner('Consultando os oráculos digitais...'):
-                    # Chama a nova função que retorna JSON
                     personagem_json = gerar_personagem_json(api_key, dados_finais)
                     
                     if personagem_json:
@@ -234,15 +319,14 @@ if st.session_state.page == 'formulario':
                         st.error("Erro ao gerar o personagem. Tente novamente.")
 
 # ===================================================================
-# --- PÁGINA 2: RELATÓRIO (JSON -> GRAPHIC) ---
+#                           RELATORIO
 # ===================================================================
 elif st.session_state.page == 'relatorio':
 
-    # --- NOVA FUNÇÃO DE GRÁFICO (ACEITA O JSON DIRETO) ---
-    def build_hexagon_html(attrs):
-        """Gera o HTML completo para o gráfico de hexágono."""
+    def build_full_report_html(data):
+        """Gera um HTML ÚNICO contendo todo o relatório visual + gráfico."""
         
-        # Pega os valores diretamente do dicionário de atributos
+        attrs = data.get('atributos', {})
         f = attrs.get('forca', 5)
         a = attrs.get('agilidade', 5)
         i = attrs.get('inteligencia', 5)
@@ -250,30 +334,167 @@ elif st.session_state.page == 'relatorio':
         s = attrs.get('sobrevivencia', 5)
         m = attrs.get('magia', 5)
 
-        # HTML/CSS/JS (Inalterado, apenas a injeção de dados mudou)
+        # Prepara o inventário como lista HTML
+        inventario_lis = "".join([f"<li>🎒 {item}</li>" for item in data.get('inventario', [])])
+        
+        # Carrega a imagem e converte para base64
+        # Caminho da imagem conforme solicitado: imgs/userIcon.png
+        img_src = get_image_base64("imgs/userIcon.png")
+        img_tag = f'<img src="{img_src}" class="char-img" />' if img_src else '<div style="text-align:center; color: #555;">(Imagem não encontrada)</div>'
+
         html_string = f"""
         <!DOCTYPE html>
         <html lang="pt-br">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Hexagono</title>
+            <title>Ficha de Personagem</title>
+            <link href="[https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap)" rel="stylesheet">
             <style>
-                body {{margin: 0; padding: 0; background-color: #3b3b3b;}}
+                body {{
+                    margin: 0; 
+                    padding: 10px; /* Reduzi o padding do body */
+                    background-color: transparent; 
+                    font-family: 'Inter', sans-serif;
+                    color: #fff;
+                }}
+                .char-card {{
+                    background-color: #1a1c24;
+                    border: 1px solid #2b2d35;
+                    border-radius: 20px;
+                    padding: 40px;
+                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+                    /* MUDANÇA AQUI: de 800px para 100% para ocupar toda a largura disponível */
+                    max-width: 100%; 
+                    margin: 0 auto;
+                }}
+                .char-header {{
+                    text-align: center;
+                    margin-bottom: 30px;
+                    border-bottom: 1px solid #333;
+                    padding-bottom: 20px;
+                }}
+                .char-title {{
+                    margin: 0;
+                    font-size: 2.5em;
+                    color: #fff;
+                }}
+                .char-subtitle {{
+                    margin: 5px 0 20px 0;
+                    color: #bbb;
+                    font-size: 1.2em;
+                    font-style: italic;
+                }}
+                .char-img {{
+                    width: 150px;
+                    height: 150px;
+                    border-radius: 50%;
+                    object-fit: cover;
+                    border: 3px solid #bbff00;
+                    margin-bottom: 10px;
+                }}
+                .char-section-title {{
+                    margin-top: 30px;
+                    margin-bottom: 15px;
+                    color: #bbff00;
+                    font-size: 1.4em;
+                    font-weight: bold;
+                    border-bottom: 1px solid #444;
+                    padding-bottom: 5px;
+                }}
+                .char-text {{
+                    color: #ddd;
+                    line-height: 1.6;
+                    text-align: justify;
+                    margin-bottom: 20px;
+                }}
+                .char-list {{
+                    list-style-type: none;
+                    padding: 0;
+                    color: #ddd;
+                }}
+                .char-list li {{
+                    padding: 8px 0;
+                    border-bottom: 1px solid #333;
+                }}
+                /* MUDANÇA AQUI: Grid responsivo com auto-fit */
+                .attr-grid {{
+                    display: grid;
+                    /* Cria colunas de no mínimo 140px, preenchendo o espaço */
+                    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                    gap: 15px;
+                    text-align: center;
+                    margin-bottom: 40px;
+                }}
+                .attr-box {{
+                    background-color: #2b2d35;
+                    padding: 15px;
+                    border-radius: 10px;
+                    border: 1px solid #444;
+                }}
+                .attr-val {{
+                    font-size: 1.8em;
+                    font-weight: bold;
+                    color: #fff;
+                }}
+                .attr-label {{
+                    font-size: 0.8em;
+                    color: #aaa;
+                    margin-top: 5px;
+                }}
                 canvas {{
                     display: block;
                     margin: 0 auto;
                     width: 100%;
-                    max-width: 1280px; 
-                    background-color: #161616;
+                    max-width: 600px; /* Mantém o gráfico sob controle */
                 }}
             </style>
         </head>
         <body>
-        <canvas id="canvas"></canvas>
+        
+        <div class="char-card">
+            <!-- CABEÇALHO (Dentro do Card) -->
+            <div class="char-header">
+                {img_tag}
+                <h1 class="char-title">{data.get('nome', 'Sem Nome')}</h1>
+                <p class="char-subtitle">{data.get('raca')} | {data.get('classe')}</p>
+            </div>
+
+            <!-- CONTEÚDO (Dentro do Card) -->
+            <div class="char-section-title">👤 Detalhes Físicos</div>
+            <div class="char-text">{data.get('detalhes_fisicos')}</div>
+
+            <div class="char-section-title">📖 História</div>
+            <div class="char-text">{data.get('historia')}</div>
+
+            <div class="char-section-title">🧠 Personalidade</div>
+            <div class="char-text">{data.get('personalidade')}</div>
+
+            <div class="char-section-title">🎒 Inventário</div>
+            <ul class="char-list">
+                {inventario_lis}
+            </ul>
+
+            <div class="char-section-title">📊 Atributos</div>
+            <div class="attr-grid">
+                <div class="attr-box"><div class="attr-val">{attrs.get('forca', 0)}</div><div class="attr-label">FORÇA</div></div>
+                <div class="attr-box"><div class="attr-val">{attrs.get('agilidade', 0)}</div><div class="attr-label">AGILIDADE</div></div>
+                <div class="attr-box"><div class="attr-val">{attrs.get('vitalidade', 0)}</div><div class="attr-label">VITALIDADE</div></div>
+                <div class="attr-box"><div class="attr-val">{attrs.get('inteligencia', 0)}</div><div class="attr-label">INTELIGÊNCIA</div></div>
+                <div class="attr-box"><div class="attr-val">{attrs.get('sobrevivencia', 0)}</div><div class="attr-label">SOBREVIVÊNCIA</div></div>
+                <div class="attr-box"><div class="attr-val">{attrs.get('magia', 0)}</div><div class="attr-label">MAGIA</div></div>
+            </div>
+
+            <!-- GRÁFICO (Dentro do Card) -->
+            <div style="text-align: center; margin-bottom: 20px;">
+                <canvas id="canvas"></canvas>
+            </div>
+        </div>
+
         <script>
             var canvas = document.getElementById('canvas');
-            canvas.width = canvas.clientWidth || 600;
+            // Ajusta o tamanho interno do canvas para alta resolução
+            canvas.width = 600;
             canvas.height = 600; 
 
             var container = canvas.getContext("2d");
@@ -347,7 +568,7 @@ elif st.session_state.page == 'relatorio':
                     var valueLabel = attributes[j];
 
                     container.fillStyle = "#ffffffff"; 
-                    container.font = "20px Inter";
+                    container.font = "20px Inter, sans-serif";
                     if (j === 0 || j === 1 || j === 5) {{
                         container.textAlign = "left";
                         textX += 20; 
@@ -389,7 +610,7 @@ elif st.session_state.page == 'relatorio':
                 container.fill();
             }}
 
-            // --- INJEÇÃO DE DADOS DO JSON ---
+            // INJEÇÃO DE DADOS
             meter({f}, {a}, {i}, {v}, {s}, {m});
             
         </script>
@@ -397,46 +618,52 @@ elif st.session_state.page == 'relatorio':
         </html>
         """
         return html_string
-    
-    # --- LÓGICA PRINCIPAL ---
-    st.title("Ficha de Personagem")
 
     if st.button("⬅️ Criar Novo Personagem"):
         st.session_state.page = 'formulario'
         st.rerun()
 
-    st.divider()
-
     data = st.session_state.character_data
     
     if data:
-        # 1. Gráfico (Usando os dados do JSON diretamente)
         try:
-            # Acessa os atributos de forma segura
-            attrs = data.get('atributos', {})
-            hexagon_html = build_hexagon_html(attrs)
+            full_report_html = build_full_report_html(data)
             
-            st.subheader("Gráfico de Atributos")
-            components.html(hexagon_html, height=620, scrolling=False) 
+            # Exibe o relatório completo (Texto + Imagem + Gráfico) em um único componente
+            # Height ajustada para permitir rolagem confortável
+            components.html(full_report_html, height=3000) 
             
         except Exception as e:
-            st.error(f"Erro ao gerar o gráfico: {e}")
+            st.error(f"Erro ao gerar a visualização: {e}")
 
         st.divider()
-        
-        # 2. Relatório de Texto (Formatado a partir do JSON)
-        st.subheader("Relatório Completo")
         relatorio_markdown = formatar_relatorio_markdown(data)
         
-        with st.container():
-            st.markdown(relatorio_markdown)
-
-        st.divider()
-        st.download_button(
-            label="💾 Baixar Ficha (TXT)",
-            data=relatorio_markdown,
-            file_name=f"ficha_{data.get('nome', 'personagem').replace(' ', '_').lower()}.md",
-            mime="text/markdown"
-        )
+        # Colunas para botões lado a lado
+        btn_col1, btn_col2 = st.columns(2)
+        
+        with btn_col1:
+            st.download_button(
+                label="💾 Baixar Ficha (TXT)",
+                data=relatorio_markdown,
+                file_name=f"ficha_{data.get('nome', 'personagem').replace(' ', '_').lower()}.md",
+                mime="text/markdown",
+                use_container_width=True
+            )
+            
+        with btn_col2:
+            try:
+                # Gera o PDF
+                pdf_data = create_pdf(data)
+                st.download_button(
+                    label="📄 Baixar Ficha (PDF)",
+                    data=pdf_data,
+                    file_name=f"ficha_{data.get('nome', 'personagem').replace(' ', '_').lower()}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"Erro ao gerar PDF: {e}")
+                
     else:
         st.error("Nenhum dado de personagem encontrado.")
